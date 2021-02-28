@@ -44,6 +44,7 @@ app = Flask(__name__)
 
 @app.route('/vod/<string:channel>', methods=['GET', 'HEAD'])
 def vod(channel):
+    channel = channel.lower()
     if CHANNEL_FILTER.match(channel):
         return get_inner(channel)
     else:
@@ -52,6 +53,7 @@ def vod(channel):
 
 @app.route('/vodonly/<string:channel>', methods=['GET', 'HEAD'])
 def vodonly(channel):
+    channel = channel.lower()
     if CHANNEL_FILTER.match(channel):
         return get_inner(channel, add_live=False)
     else:
