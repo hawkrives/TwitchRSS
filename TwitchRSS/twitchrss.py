@@ -33,7 +33,10 @@ VODCACHE_LIFETIME = 10 * 60
 USERIDCACHE_LIFETIME = 24 * 60 * 60
 CHANNEL_FILTER = re.compile("^[a-zA-Z0-9_]{2,25}$")
 TWITCH_CLIENT_ID = environ.get("TWITCH_CLIENT_ID")
-logging.basicConfig(level=logging.DEBUG if environ.get('DEBUG') else logging.INFO)
+PORT = environ.get("TWITCHRSS_PORT", "8080")
+PORT = int(PORT)
+DEBUG = True if environ.get('DEBUG') else False
+logging.basicConfig(level=logging.DEBUG if DEBUG else logging.INFO)
 
 if not TWITCH_CLIENT_ID:
     raise Exception("Twitch API client id is not set.")
@@ -183,4 +186,5 @@ def generate_items(vods_info, *, channel_name, add_live):
 
 # For debug
 if __name__ == "__main__":
-    app.run(host='127.0.0.1', port=8080, debug=True)
+    if DEBUG:
+        app.run(host='127.0.0.1', port=PORT, debug=DEBUG)
