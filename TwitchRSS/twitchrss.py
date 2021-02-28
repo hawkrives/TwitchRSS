@@ -27,8 +27,8 @@ from io import BytesIO
 import gzip
 
 
-VOD_URL_TEMPLATE = 'https://api.twitch.tv/kraken/channels/%s/videos?broadcast_type=archive,highlight,upload&limit=10'
-USERID_URL_TEMPLATE = 'https://api.twitch.tv/kraken/users?login=%s'
+VOD_URL_TEMPLATE = 'https://api.twitch.tv/kraken/channels/{login}/videos?broadcast_type=archive,highlight,upload&limit=10'
+USERID_URL_TEMPLATE = 'https://api.twitch.tv/kraken/users?login={login}'
 VODCACHE_LIFETIME = 10 * 60
 USERIDCACHE_LIFETIME = 24 * 60 * 60
 CHANNEL_FILTER = re.compile("^[a-zA-Z0-9_]{2,25}$")
@@ -93,24 +93,24 @@ def fetch_vods(channel_id):
 
 
 def fetch_json(id, url_template):
-    url = url_template % id
+    url = url_template.format(login=id)
     headers = {
         'Accept': 'application/vnd.twitchtv.v5+json',
         'Client-ID': TWITCH_CLIENT_ID,
-        'Accept-Encoding': 'gzip'
+        'Accept-Encoding': 'gzip',
     }
     request = urllib.request.Request(url, headers=headers)
     retries = 0
     while retries < 3:
         try:
             result = urllib.request.urlopen(request, timeout=3)
-            logging.debug('Fetch from twitch for %s with code %s' % (id, result.getcode()))
+            logging.debug('Fetch from twitch for %s with code %s', id, result.getcode())
             if result.info().get('Content-Encoding') == 'gzip':
                 logging.debug('Fetched gzip content')
                 return gzip.decompress(result.read())
             return result.read()
         except Exception as e:
-            logging.warning("Fetch exception caught: %s" % e)
+            logging.warning("Fetch exception caught: %s", e)
             retries += 1
     abort(503)
 
@@ -126,7 +126,7 @@ def extract_userid(user_info):
     if username and userid:
         return username, userid
     else:
-        logging.warning('Userid is not found in %s' % user_info)
+        logging.warning('Userid is not found in %s', user_info)
         abort(404)
 
 
@@ -134,45 +134,52 @@ def construct_rss(channel_name, vods_info, display_name, add_live=True):
     feed = Feed()
 
     # Set the feed/channel level properties
-    feed.feed["title"] = "%s's Twitch video RSS" % display_name
-    feed.feed["link"] = "https://twitchrss.appspot.com/"
+    feed.feed["title"] = f"{display_name}'s Twitch video RSS"
+    feed.feed["link"] = "https://twitch.tv/"
     feed.feed["author"] = "Twitch RSS Generated"
-    feed.feed["description"] = "The RSS Feed of %s's videos on Twitch" % display_name
+    feed.feed["description"] = f"The RSS Feed of {display_name}'s videos on Twitch"
     feed.feed["ttl"] = '10'
 
     # Create an item
     try:
-        if vods_info['videos']:
-            for vod in vods_info['videos']:
-                item = {}
-                if vod["status"] == "recording":
-                    if not add_live:
-                        continue
-                    link = "http://www.twitch.tv/%s" % channel_name
-                    item["title"] = "%s - LIVE" % vod['title']
-                    item["category"] = "live"
-                else:
-                    link = vod['url']
-                    item["title"] = vod['title']
-                    item["category"] = vod['broadcast_type']
-                item["link"] = link
-                item["description"] = "<a href=\"%s\"><img src=\"%s\" /></a>" % (link, vod['preview']['large'])
-                if vod.get('game'):
-                    item["description"] += "<br/>" + vod['game']
-                if vod.get('description_html'):
-                    item["description"] += "<br/>" + vod['description_html']
-                d = datetime.datetime.strptime(vod['created_at'], '%Y-%m-%dT%H:%M:%SZ')
-                item["pubDate"] = d.timetuple()
-                item["guid"] = vod['_id']
-                if vod["status"] == "recording":  # To show a different news item when recording is over
-                    item["guid"] += "_live"
-                feed.items.append(item)
+        for item in generate_items(vods_info, add_live=add_live, channel_name=channel_name):
+            feed.items.append(item)
     except KeyError as e:
-        logging.warning('Issue with json: %s\nException: %s' % (vods_info, e))
+        logging.warning('Issue with json: %s\nException: %s', vods_info, e)
         abort(404)
 
-    return feed.format_rss2_string()
+    return feed.format_atom_string(pretty=True)
 
+
+def generate_items(vods_info, *, channel_name, add_live):
+    for vod in vods_info.get('videos', []):
+        item = {}
+        if vod["status"] == "recording":
+            if not add_live:
+                continue
+            link = f"http://www.twitch.tv/{channel_name}"
+            item["title"] = f"{vod['title']} - LIVE"
+            item["category"] = "live"
+        else:
+            link = vod['url']
+            item["title"] = vod['title']
+            item["category"] = vod['broadcast_type']
+        item["link"] = link
+        img_src = vod['preview']['large']
+        item["description"] = f'<a href="{link}"><img src="{img_src}" /></a>'
+        if vod.get('game'):
+            item["description"] += "<br/>" + vod['game']
+        if vod.get('description_html'):
+            item["description"] += "<br/>" + vod['description_html']
+        
+        d = datetime.datetime.strptime(vod['created_at'], '%Y-%m-%dT%H:%M:%SZ')
+        item["pubDate"] = d.timetuple()
+        
+        item["guid"] = vod['_id']
+        if vod["status"] == "recording":  # To show a different news item when recording is over
+            item["guid"] += "_live"
+        
+        yield item
 
 # For debug
 if __name__ == "__main__":
